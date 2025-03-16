@@ -45,7 +45,8 @@ __global__ void rasterize_to_pixels_bwd_kernel(
     vec2<S> *__restrict__ v_means2d,     // [C, N, 2] or [nnz, 2]
     vec3<S> *__restrict__ v_conics,      // [C, N, 3] or [nnz, 3]
     S *__restrict__ v_colors,   // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
-    S *__restrict__ v_opacities // [C, N] or [nnz]
+    S *__restrict__ v_opacities, // [C, N] or [nnz]
+    S *__restrict__ grad_perchannel_weights // [COLOR_DIM]
 ) {
     auto block = cg::this_thread_block();
     uint32_t camera_id = block.group_index().x;
@@ -204,7 +205,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
                 for (uint32_t k = 0; k < COLOR_DIM; ++k) {
                     v_alpha +=
                         (rgbs_batch[t * COLOR_DIM + k] * T - buffer[k] * ra) *
-                        v_render_c[k];
+                        v_render_c[k] * grad_perchannel_weights[k];
                 }
 
                 v_alpha += T_final * ra * v_render_a;
@@ -213,7 +214,7 @@ __global__ void rasterize_to_pixels_bwd_kernel(
                     S accum = 0.f;
                     GSPLAT_PRAGMA_UNROLL
                     for (uint32_t k = 0; k < COLOR_DIM; ++k) {
-                        accum += backgrounds[k] * v_render_c[k];
+                        accum += backgrounds[k] * v_render_c[k] * grad_perchannel_weights[k];
                     }
                     v_alpha += -T_final * ra * accum;
                 }
@@ -305,7 +306,8 @@ call_kernel_with_dim(
     const torch::Tensor &v_render_colors, // [C, image_height, image_width, 3]
     const torch::Tensor &v_render_alphas, // [C, image_height, image_width, 1]
     // options
-    bool absgrad
+    bool absgrad,
+    const torch::Tensor &grad_perchannel_weights
 ) {
 
     GSPLAT_DEVICE_GUARD(means2d);
@@ -319,6 +321,7 @@ call_kernel_with_dim(
     GSPLAT_CHECK_INPUT(last_ids);
     GSPLAT_CHECK_INPUT(v_render_colors);
     GSPLAT_CHECK_INPUT(v_render_alphas);
+    GSPLAT_CHECK_INPUT(grad_perchannel_weights);
     if (backgrounds.has_value()) {
         GSPLAT_CHECK_INPUT(backgrounds.value());
     }
@@ -398,7 +401,8 @@ call_kernel_with_dim(
                 reinterpret_cast<vec2<float> *>(v_means2d.data_ptr<float>()),
                 reinterpret_cast<vec3<float> *>(v_conics.data_ptr<float>()),
                 v_colors.data_ptr<float>(),
-                v_opacities.data_ptr<float>()
+                v_opacities.data_ptr<float>(),
+                grad_perchannel_weights.data_ptr<float>()
             );
     }
 
@@ -435,7 +439,8 @@ rasterize_to_pixels_bwd_tensor(
     const torch::Tensor &v_render_colors, // [C, image_height, image_width, 3]
     const torch::Tensor &v_render_alphas, // [C, image_height, image_width, 1]
     // options
-    bool absgrad
+    bool absgrad,
+    const torch::Tensor &grad_perchannel_weights
 ) {
 
     GSPLAT_CHECK_INPUT(colors);
@@ -459,7 +464,8 @@ rasterize_to_pixels_bwd_tensor(
             last_ids,                                                          \
             v_render_colors,                                                   \
             v_render_alphas,                                                   \
-            absgrad                                                            \
+            absgrad,                                                           \
+            grad_perchannel_weights                                            \
         );
 
     switch (COLOR_DIM) {

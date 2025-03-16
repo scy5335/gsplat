@@ -447,6 +447,7 @@ def rasterize_to_pixels(
     masks: Optional[Tensor] = None,  # [C, tile_height, tile_width]
     packed: bool = False,
     absgrad: bool = False,
+    grad_perchannel_weights: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Tensor]:
     """Rasterizes Gaussians to pixels.
 
@@ -537,6 +538,14 @@ def rasterize_to_pixels(
                 ],
                 dim=-1,
             )
+        
+        grad_perchannel_weights = torch.cat(
+            [
+                grad_perchannel_weights,
+                torch.zeros(*grad_perchannel_weights.shape[:-1], padded_channels, device=device),
+            ],
+            dim=-1,
+        )
     else:
         padded_channels = 0
 
@@ -561,6 +570,7 @@ def rasterize_to_pixels(
         isect_offsets.contiguous(),
         flatten_ids.contiguous(),
         absgrad,
+        grad_perchannel_weights.contiguous(),
     )
 
     if padded_channels > 0:
@@ -916,6 +926,7 @@ class _RasterizeToPixels(torch.autograd.Function):
         isect_offsets: Tensor,  # [C, tile_height, tile_width]
         flatten_ids: Tensor,  # [n_isects]
         absgrad: bool,
+        grad_perchannel_weights: Tensor,
     ) -> Tuple[Tensor, Tensor]:
         render_colors, render_alphas, last_ids = _make_lazy_cuda_func(
             "rasterize_to_pixels_fwd"
@@ -944,6 +955,7 @@ class _RasterizeToPixels(torch.autograd.Function):
             flatten_ids,
             render_alphas,
             last_ids,
+            grad_perchannel_weights,
         )
         ctx.width = width
         ctx.height = height
@@ -971,6 +983,7 @@ class _RasterizeToPixels(torch.autograd.Function):
             flatten_ids,
             render_alphas,
             last_ids,
+            grad_perchannel_weights,
         ) = ctx.saved_tensors
         width = ctx.width
         height = ctx.height
@@ -1000,6 +1013,7 @@ class _RasterizeToPixels(torch.autograd.Function):
             v_render_colors.contiguous(),
             v_render_alphas.contiguous(),
             absgrad,
+            grad_perchannel_weights,
         )
 
         if absgrad:
@@ -1018,6 +1032,7 @@ class _RasterizeToPixels(torch.autograd.Function):
             v_colors,
             v_opacities,
             v_backgrounds,
+            None,
             None,
             None,
             None,
