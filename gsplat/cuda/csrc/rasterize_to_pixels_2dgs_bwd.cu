@@ -59,7 +59,8 @@ __global__ void rasterize_to_pixels_bwd_2dgs_kernel(
     S *__restrict__ v_colors,    // [C, N, COLOR_DIM] or [nnz, COLOR_DIM]
     S *__restrict__ v_opacities, // [C, N] or [nnz]
     S *__restrict__ v_normals,   // [C, N, 3] or [nnz, 3]
-    S *__restrict__ v_densify
+    S *__restrict__ v_densify,
+    S *__restrict__ grad_perchannel_weights
 ) {
     /**
      * ==============================
@@ -413,7 +414,7 @@ __global__ void rasterize_to_pixels_bwd_2dgs_kernel(
                 // this can be proven by symbolic differentiation of a_i with respect to c_out
                 S v_alpha = 0.f;
                 for (uint32_t k = 0; k < COLOR_DIM; ++k) {
-                    v_alpha += (rgbs_batch[t * COLOR_DIM + k] * T - buffer[k] * ra) * v_render_c[k];
+                    v_alpha += (rgbs_batch[t * COLOR_DIM + k] * T - buffer[k] * ra) * v_render_c[k] * grad_perchannel_weights[k];
                 }
 
                 /*
@@ -443,7 +444,7 @@ __global__ void rasterize_to_pixels_bwd_2dgs_kernel(
                     S accum = 0.f;
                     GSPLAT_PRAGMA_UNROLL
                     for (uint32_t k = 0; k < COLOR_DIM; ++k) {
-                        accum += backgrounds[k] * v_render_c[k];
+                        accum += backgrounds[k] * v_render_c[k] * grad_perchannel_weights[k];
                     }
                     v_alpha += -T_final * ra * accum;
                 }
@@ -646,7 +647,8 @@ call_kernel_with_dim(
     const torch::Tensor &v_render_distort, // [C, image_height, image_width, 1]
     const torch::Tensor &v_render_median,  // [C, image_height, image_width, 1]
     // options
-    bool absgrad
+    bool absgrad,
+    const torch::Tensor &grad_perchannel_weights
 ) {
 
     GSPLAT_DEVICE_GUARD(means2d);
@@ -667,6 +669,7 @@ call_kernel_with_dim(
     GSPLAT_CHECK_INPUT(v_render_normals);
     GSPLAT_CHECK_INPUT(v_render_distort);
     GSPLAT_CHECK_INPUT(v_render_median);
+    GSPLAT_CHECK_INPUT(grad_perchannel_weights);
     if (backgrounds.has_value()) {
         GSPLAT_CHECK_INPUT(backgrounds.value());
     }
@@ -757,7 +760,8 @@ call_kernel_with_dim(
                 v_colors.data_ptr<float>(),
                 v_opacities.data_ptr<float>(),
                 v_normals.data_ptr<float>(),
-                v_densify.data_ptr<float>()
+                v_densify.data_ptr<float>(),
+                grad_perchannel_weights.data_ptr<float>()
             );
     }
 
@@ -810,7 +814,8 @@ rasterize_to_pixels_bwd_2dgs_tensor(
     const torch::Tensor &v_render_distort, // [C, image_height, image_width, 1]
     const torch::Tensor &v_render_median,  // [C, image_height, image_width, 1]
     // options
-    bool absgrad
+    bool absgrad,
+    const torch::Tensor &grad_perchannel_weights
 ) {
 
     GSPLAT_CHECK_INPUT(colors);
@@ -820,7 +825,7 @@ rasterize_to_pixels_bwd_2dgs_tensor(
     case N:                                                                    \
         return call_kernel_with_dim<N>(                                        \
             means2d,                                                           \
-            ray_transforms,                                                            \
+            ray_transforms,                                                    \
             colors,                                                            \
             opacities,                                                         \
             normals,                                                           \
@@ -841,7 +846,8 @@ rasterize_to_pixels_bwd_2dgs_tensor(
             v_render_normals,                                                  \
             v_render_distort,                                                  \
             v_render_median,                                                   \
-            absgrad                                                            \
+            absgrad,                                                           \
+            grad_perchannel_weights                                            \
         );
 
     switch (COLOR_DIM) {

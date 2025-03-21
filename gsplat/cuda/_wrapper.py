@@ -1655,6 +1655,7 @@ def rasterize_to_pixels_2dgs(
     packed: bool = False,
     absgrad: bool = False,
     distloss: bool = False,
+    grad_perchannel_weights: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Tensor]:
     """Rasterize Gaussians to pixels.
 
@@ -1723,6 +1724,14 @@ def rasterize_to_pixels_2dgs(
                 ],
                 dim=-1,
             )
+        
+        grad_perchannel_weights = torch.cat(
+            [
+                grad_perchannel_weights,
+                torch.zeros(*grad_perchannel_weights.shape[:-1], padded_channels, device=device),
+            ],
+            dim=-1,
+        )
     else:
         padded_channels = 0
     tile_height, tile_width = isect_offsets.shape[1:3]
@@ -1755,6 +1764,7 @@ def rasterize_to_pixels_2dgs(
         flatten_ids.contiguous(),
         absgrad,
         distloss,
+        grad_perchannel_weights.contiguous(),
     )
 
     if padded_channels > 0:
@@ -1861,6 +1871,7 @@ class _RasterizeToPixels2DGS(torch.autograd.Function):
         flatten_ids: Tensor,
         absgrad: bool,
         distloss: bool,
+        grad_perchannel_weights: Tensor,
     ) -> Tuple[Tensor, Tensor]:
         (
             render_colors,
@@ -1900,6 +1911,7 @@ class _RasterizeToPixels2DGS(torch.autograd.Function):
             render_alphas,
             last_ids,
             median_ids,
+            grad_perchannel_weights,
         )
         ctx.width = width
         ctx.height = height
@@ -1942,6 +1954,7 @@ class _RasterizeToPixels2DGS(torch.autograd.Function):
             render_alphas,
             last_ids,
             median_ids,
+            grad_perchannel_weights,
         ) = ctx.saved_tensors
         width = ctx.width
         height = ctx.height
@@ -1980,6 +1993,7 @@ class _RasterizeToPixels2DGS(torch.autograd.Function):
             v_render_distort.contiguous(),
             v_render_median.contiguous(),
             absgrad,
+            grad_perchannel_weights,
         )
         torch.cuda.synchronize()
         if absgrad:
@@ -2000,6 +2014,7 @@ class _RasterizeToPixels2DGS(torch.autograd.Function):
             v_normals,
             v_densify,
             v_backgrounds,
+            None,
             None,
             None,
             None,

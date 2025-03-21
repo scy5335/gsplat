@@ -1025,6 +1025,7 @@ def rasterization_2dgs(
     absgrad: bool = False,
     distloss: bool = False,
     depth_mode: Literal["expected", "median"] = "expected",
+    grad_perchannel_weights: Optional[Tensor] = None,
 ) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, Dict]:
     """Rasterize a set of 2D Gaussians (N) to a batch of image planes (C).
 
@@ -1266,6 +1267,7 @@ def rasterization_2dgs(
         packed=packed,
         absgrad=absgrad,
         distloss=distloss,
+        grad_perchannel_weights=grad_perchannel_weights,
     )
     render_normals_from_depth = None
     if render_mode in ["ED", "RGB+ED"]:
